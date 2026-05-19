@@ -1,0 +1,17 @@
+{
+  "company": [
+    "https://www.linkedin.com/company/google",
+    "https://www.linkedin.com/company/microsoft",
+    "Netflix",
+    "Oracle Corp"
+  ],
+  "easyApply": false,
+  "employmentType": ["full-time"],
+  "experienceLevel": ["associate", "entry", "mid-senior"],
+  "industryIds": ["4", "96", "6", "3102", "2458", "3128"],
+  "jobTitles": ["Java Microservices"],
+  "locations": ["India"],
+  "maxItems": 10,
+  "under10Applicants": false,
+  "workplaceType": ["hybrid", "remote", "office"]
+}

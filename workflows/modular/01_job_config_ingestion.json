@@ -1,0 +1,111 @@
+{
+  "name": "01_Job_Config_Ingestion",
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 240],
+      "parameters": {}
+    },
+    {
+      "id": "n2",
+      "name": "Has Direct Form Config?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [440, 240],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{$json.form_triggered}}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "n3",
+      "name": "Build Direct Apify Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 140],
+      "parameters": {
+        "jsCode": "const parseBool = (v, d = false) => {\n  if (v === undefined || v === null || v === '') return d;\n  if (typeof v === 'boolean') return v;\n  return String(v).trim().toLowerCase() === 'true';\n};\n\nconst parseIntSafe = (v, d = 25) => {\n  const n = Number(v);\n  return Number.isFinite(n) && n > 0 ? n : d;\n};\n\nconst parseCsv = (v) => {\n  if (!v) return [];\n  return String(v)\n    .split(',')\n    .map((s) => s.trim())\n    .filter(Boolean);\n};\n\nreturn $input.all().map((item) => {\n  const f = item.json;\n\n  const companyList = parseCsv(f.company_list);\n  const jobTitles = parseCsv(f.job_titles);\n  const locations = parseCsv(f.locations);\n  const industryIds = parseCsv(f.industry_ids);\n  const employmentType = parseCsv(f.employment_type);\n  const experienceLevels = parseCsv(f.experience_levels);\n  const workplaceTypes = parseCsv(f.workplace_types);\n\n  const config = {\n    search_name: f.search_name || `form_${new Date().toISOString().slice(0, 10)}`,\n    company_list: companyList,\n    job_titles: jobTitles,\n    locations,\n    industry_ids: industryIds,\n    employment_type: employmentType,\n    experience_levels: experienceLevels,\n    workplace_types: workplaceTypes,\n    easy_apply: parseBool(f.easy_apply, false),\n    under_10_applicants: parseBool(f.under_10_applicants, false),\n    max_items: parseIntSafe(f.max_items, 25),\n    country_filter: (f.country_filter || 'IN').toUpperCase(),\n    created_at: new Date().toISOString(),\n    updated_at: new Date().toISOString()\n  };\n\n  const payload = {\n    company: config.company_list,\n    easyApply: config.easy_apply,\n    employmentType: config.employment_type,\n    experienceLevel: config.experience_levels,\n    industryIds: config.industry_ids,\n    jobTitles: config.job_titles,\n    locations: config.locations,\n    maxItems: config.max_items,\n    under10Applicants: config.under_10_applicants,\n    workplaceType: config.workplace_types\n  };\n\n  return {\n    json: {\n      search_name: config.search_name,\n      country_filter: config.country_filter,\n      apify_payload: payload,\n      config_snapshot: config,\n      execution_timestamp: new Date().toISOString()\n    }\n  };\n});"
+      }
+    },
+    {
+      "id": "n4",
+      "name": "Read JobSearchConfigs",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [680, 340],
+      "parameters": {
+        "operation": "read",
+        "documentId": "={{$env.GSHEET_JOB_CONFIGS_ID}}",
+        "sheetName": "JobSearchConfigs"
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "id": "n5",
+      "name": "Parse Enabled Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 340],
+      "parameters": {
+        "jsCode": "const rows = $input.all();\n\nconst parseBool = (v, d = false) => {\n  if (v === undefined || v === null || v === '') return d;\n  if (typeof v === 'boolean') return v;\n  return String(v).trim().toLowerCase() === 'true';\n};\n\nconst parseIntSafe = (v, d = 25) => {\n  const n = Number(v);\n  return Number.isFinite(n) && n > 0 ? n : d;\n};\n\nconst parseCsv = (v) => {\n  if (!v) return [];\n  return String(v)\n    .split(',')\n    .map((s) => s.trim())\n    .filter(Boolean);\n};\n\nconst clean = rows\n  .map((r) => r.json)\n  .filter((r) => parseBool(r.enabled, false))\n  .map((r) => ({\n    search_name: r.search_name || 'default_search',\n    company_list: parseCsv(r.company_list),\n    job_titles: parseCsv(r.job_titles),\n    locations: parseCsv(r.locations),\n    industry_ids: parseCsv(r.industry_ids),\n    employment_type: parseCsv(r.employment_type),\n    experience_levels: parseCsv(r.experience_levels),\n    workplace_types: parseCsv(r.workplace_types),\n    easy_apply: parseBool(r.easy_apply, false),\n    under_10_applicants: parseBool(r.under_10_applicants, false),\n    max_items: parseIntSafe(r.max_items, 25),\n    country_filter: r.country_filter || 'IN',\n    created_at: r.created_at || new Date().toISOString(),\n    updated_at: new Date().toISOString()\n  }));\n\nreturn clean.map((json) => ({ json }));"
+      }
+    },
+    {
+      "id": "n6",
+      "name": "Build Apify Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1160, 340],
+      "parameters": {
+        "jsCode": "return $input.all().map((item) => {\n  const c = item.json;\n\n  const payload = {\n    company: c.company_list,\n    easyApply: c.easy_apply,\n    employmentType: c.employment_type,\n    experienceLevel: c.experience_levels,\n    industryIds: c.industry_ids,\n    jobTitles: c.job_titles,\n    locations: c.locations,\n    maxItems: c.max_items,\n    under10Applicants: c.under_10_applicants,\n    workplaceType: c.workplace_types\n  };\n\n  return {\n    json: {\n      search_name: c.search_name,\n      country_filter: c.country_filter,\n      apify_payload: payload,\n      config_snapshot: c,\n      execution_timestamp: new Date().toISOString()\n    }\n  };\n});"
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [[{ "node": "Has Direct Form Config?", "type": "main", "index": 0 }]]
+    },
+    "Has Direct Form Config?": {
+      "main": [
+        [{ "node": "Build Direct Apify Payload", "type": "main", "index": 0 }],
+        [{ "node": "Read JobSearchConfigs", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read JobSearchConfigs": {
+      "main": [[{ "node": "Parse Enabled Rows", "type": "main", "index": 0 }]]
+    },
+    "Parse Enabled Rows": {
+      "main": [[{ "node": "Build Apify Payload", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {},
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

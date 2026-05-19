@@ -1,0 +1,223 @@
+{
+  "name": "02_Apify_Scrape_Async",
+  "nodes": [
+    {
+      "id": "a1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 260],
+      "parameters": {}
+    },
+    {
+      "id": "a2",
+      "name": "Start Actor Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 260],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.apify.com/v2/acts/{{$env.APIFY_ACTOR_ID}}/runs",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "token", "value": "={{$env.APIFY_TOKEN}}" },
+            { "name": "waitForFinish", "value": "0" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.apify_payload}}",
+        "options": {
+          "timeout": 120000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 4,
+            "waitBetweenTries": 2000
+          }
+        }
+      }
+    },
+    {
+      "id": "a3",
+      "name": "Extract Run Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 260],
+      "parameters": {
+        "jsCode": "const input = $json.data || $json;\n\nreturn [{\n  json: {\n    actor_run_id: input.id,\n    dataset_id: input.defaultDatasetId || '',\n    run_status: input.status,\n    started_at: new Date().toISOString(),\n    apify_payload: $('Execute Workflow Trigger').item.json.apify_payload,\n    config_snapshot: $('Execute Workflow Trigger').item.json.config_snapshot,\n    search_name: $('Execute Workflow Trigger').item.json.search_name,\n    country_filter: $('Execute Workflow Trigger').item.json.country_filter\n  }\n}];"
+      }
+    },
+    {
+      "id": "a4",
+      "name": "Wait 20s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [940, 260],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 20,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "a5",
+      "name": "Get Run Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1160, 260],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/actor-runs/{{$json.actor_run_id}}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{ "name": "token", "value": "={{$env.APIFY_TOKEN}}" }]
+        },
+        "options": {
+          "timeout": 120000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 4,
+            "waitBetweenTries": 2500
+          }
+        }
+      }
+    },
+    {
+      "id": "a6",
+      "name": "Run Finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1380, 260],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "or",
+          "conditions": [
+            {
+              "leftValue": "={{$json.data.status}}",
+              "operator": { "type": "string", "operation": "equals" },
+              "rightValue": "SUCCEEDED"
+            },
+            {
+              "leftValue": "={{$json.data.status}}",
+              "operator": { "type": "string", "operation": "equals" },
+              "rightValue": "FAILED"
+            },
+            {
+              "leftValue": "={{$json.data.status}}",
+              "operator": { "type": "string", "operation": "equals" },
+              "rightValue": "ABORTED"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a7",
+      "name": "Was Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1600, 180],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "leftValue": "={{$json.data.status}}",
+              "operator": { "type": "string", "operation": "equals" },
+              "rightValue": "SUCCEEDED"
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "a8",
+      "name": "Fetch Dataset Items",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1820, 120],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.apify.com/v2/datasets/{{$json.data.defaultDatasetId}}/items",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "token", "value": "={{$env.APIFY_TOKEN}}" },
+            { "name": "clean", "value": "true" },
+            { "name": "format", "value": "json" }
+          ]
+        },
+        "options": {
+          "timeout": 120000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 4,
+            "waitBetweenTries": 2500
+          }
+        }
+      }
+    },
+    {
+      "id": "a9",
+      "name": "Prepare Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2040, 120],
+      "parameters": {
+        "jsCode": "const jobs = Array.isArray($json) ? $json : [];\nconst parent = $('Extract Run Metadata').item.json;\n\nreturn [{\n  json: {\n    actor_run_id: parent.actor_run_id,\n    dataset_id: parent.dataset_id || $('Get Run Status').item.json.data.defaultDatasetId,\n    execution_timestamp: new Date().toISOString(),\n    search_name: parent.search_name,\n    country_filter: parent.country_filter,\n    config_snapshot: parent.config_snapshot,\n    jobs_raw: jobs,\n    jobs_scraped: jobs.length\n  }\n}];"
+      }
+    },
+    {
+      "id": "a10",
+      "name": "Dead Letter Event",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1820, 360],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "name": "error_stage", "type": "string", "value": "apify_scrape" },
+            { "name": "error_status", "type": "string", "value": "={{$json.data.status}}" },
+            { "name": "actor_run_id", "type": "string", "value": "={{$json.data.id}}" },
+            { "name": "dataset_id", "type": "string", "value": "={{$json.data.defaultDatasetId}}" },
+            { "name": "timestamp", "type": "string", "value": "={{new Date().toISOString()}}" }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Start Actor Run", "type": "main", "index": 0 }]] },
+    "Start Actor Run": { "main": [[{ "node": "Extract Run Metadata", "type": "main", "index": 0 }]] },
+    "Extract Run Metadata": { "main": [[{ "node": "Wait 20s", "type": "main", "index": 0 }]] },
+    "Wait 20s": { "main": [[{ "node": "Get Run Status", "type": "main", "index": 0 }]] },
+    "Get Run Status": { "main": [[{ "node": "Run Finished?", "type": "main", "index": 0 }]] },
+    "Run Finished?": {
+      "main": [
+        [{ "node": "Was Success?", "type": "main", "index": 0 }],
+        [{ "node": "Wait 20s", "type": "main", "index": 0 }]
+      ]
+    },
+    "Was Success?": {
+      "main": [
+        [{ "node": "Fetch Dataset Items", "type": "main", "index": 0 }],
+        [{ "node": "Dead Letter Event", "type": "main", "index": 0 }]
+      ]
+    },
+    "Fetch Dataset Items": { "main": [[{ "node": "Prepare Output", "type": "main", "index": 0 }]] }
+  },
+  "settings": {},
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

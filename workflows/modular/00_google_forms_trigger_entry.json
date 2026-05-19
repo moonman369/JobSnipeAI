@@ -1,0 +1,61 @@
+{
+  "name": "00_Google_Forms_Trigger_Entry",
+  "nodes": [
+    {
+      "id": "g1",
+      "name": "Google Form Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 280],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jobsnipe/google-form-submit",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "g2",
+      "name": "Map Form Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 280],
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\n\nconst get = (keys, d = '') => {\n  for (const k of keys) {\n    if (body[k] !== undefined && body[k] !== null && body[k] !== '') return body[k];\n  }\n  return d;\n};\n\nreturn [{\n  json: {\n    form_triggered: true,\n    source: 'google_forms',\n    search_name: get(['search_name', 'Search Name', 'searchName'], `form_run_${Date.now()}`),\n    company_list: get(['company_list', 'Company List', 'companyList'], ''),\n    job_titles: get(['job_titles', 'Job Titles', 'jobTitles'], ''),\n    locations: get(['locations', 'Locations'], 'India'),\n    industry_ids: get(['industry_ids', 'Industry IDs', 'industryIds'], ''),\n    employment_type: get(['employment_type', 'Employment Type', 'employmentType'], 'full-time'),\n    experience_levels: get(['experience_levels', 'Experience Levels', 'experienceLevels'], 'entry,associate,mid-senior'),\n    workplace_types: get(['workplace_types', 'Workplace Types', 'workplaceTypes'], 'hybrid,remote,office'),\n    easy_apply: get(['easy_apply', 'Easy Apply', 'easyApply'], 'false'),\n    under_10_applicants: get(['under_10_applicants', 'Under 10 Applicants', 'under10Applicants'], 'false'),\n    max_items: get(['max_items', 'Max Items', 'maxItems'], '25'),\n    country_filter: get(['country_filter', 'Country Filter', 'countryFilter'], 'IN')\n  }\n}];"
+      }
+    },
+    {
+      "id": "g3",
+      "name": "Execute 05 Orchestrator",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [700, 280],
+      "parameters": {
+        "workflowId": "REPLACE_WORKFLOW_ID_05",
+        "mode": "each"
+      }
+    },
+    {
+      "id": "g4",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.2,
+      "position": [940, 280],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"accepted\",\"source\":\"google_forms\",\"message\":\"Job orchestration triggered\"}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Google Form Webhook": { "main": [[{ "node": "Map Form Fields", "type": "main", "index": 0 }]] },
+    "Map Form Fields": { "main": [[{ "node": "Execute 05 Orchestrator", "type": "main", "index": 0 }]] },
+    "Execute 05 Orchestrator": { "main": [[{ "node": "Webhook Response", "type": "main", "index": 0 }]] }
+  },
+  "settings": {},
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

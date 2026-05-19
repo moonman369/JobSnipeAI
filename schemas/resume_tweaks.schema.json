@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ResumeTweaks",
+  "type": "object",
+  "required": [
+    "summary_tweaks",
+    "experience_tweaks",
+    "skills_to_add",
+    "ats_keywords",
+    "important_notes"
+  ],
+  "properties": {
+    "summary_tweaks": { "type": "array", "items": { "type": "string" } },
+    "experience_tweaks": { "type": "array", "items": { "type": "string" } },
+    "skills_to_add": { "type": "array", "items": { "type": "string" } },
+    "ats_keywords": { "type": "array", "items": { "type": "string" } },
+    "important_notes": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}

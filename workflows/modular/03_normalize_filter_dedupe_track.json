@@ -1,0 +1,152 @@
+{
+  "name": "03_Normalize_Filter_Dedupe_Track",
+  "nodes": [
+    {
+      "id": "b1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 260],
+      "parameters": {}
+    },
+    {
+      "id": "b2",
+      "name": "Normalize Jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 260],
+      "parameters": {
+        "jsCode": "const input = $json;\nconst jobs = Array.isArray(input.jobs_raw) ? input.jobs_raw : [];\n\nconst pick = (...v) => v.find((x) => x !== undefined && x !== null && x !== '');\nconst arr = (v) => (Array.isArray(v) ? v : []);\nconst strArr = (v) => arr(v).map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).filter(Boolean);\n\nconst normalized = jobs.map((j) => {\n  const linkedinUrl = pick(j.jobUrl, j.link, j.url, '');\n  const jobId = pick(j.jobId, j.id, (linkedinUrl.match(/currentJobId=(\\d+)/) || [])[1], '');\n  const parsed = j.locationParsed || j.parsed || {};\n\n  return {\n    job_id: jobId,\n    title: pick(j.title, j.jobTitle, ''),\n    company_name: pick(j.companyName, j.company?.name, ''),\n    company_linkedin: pick(j.companyUrl, j.company?.linkedinUrl, ''),\n    company_website: pick(j.companyWebsite, j.company?.website, ''),\n    location_text: pick(j.location, j.formattedLocation, ''),\n    country: pick(j.countryCode, parsed.countryCode, parsed.country, ''),\n    state: pick(parsed.state, parsed.region, ''),\n    city: pick(parsed.city, ''),\n    workplace_type: pick(j.workplaceType, ''),\n    employment_type: pick(j.employmentType, ''),\n    experience_level: pick(j.experienceLevel, ''),\n    posted_date: pick(j.postedDate, j.postedAt, ''),\n    expiry_date: pick(j.expireAt, j.expiryDate, ''),\n    applicant_count: pick(j.applicantCount, j.applicationsCount, ''),\n    job_url: linkedinUrl,\n    easy_apply_url: pick(j.applyUrl, j.easyApplyUrl, ''),\n    description: pick(j.description, j.descriptionText, ''),\n    salary_text: pick(j.salary, j.salaryText, ''),\n    industries: strArr(j.industries),\n    job_functions: strArr(j.jobFunctions),\n    company_size: pick(j.company?.size, j.companySize, ''),\n    company_followers: pick(j.company?.followers, j.companyFollowers, ''),\n    apply_method_type: pick(j.applyMethodType, ''),\n    ats_system: pick(j.ats, j.atsSystem, ''),\n    scraped_at: new Date().toISOString(),\n    actor_run_id: input.actor_run_id,\n    dataset_id: input.dataset_id,\n    search_name: input.search_name,\n    raw_json: j\n  };\n});\n\nreturn normalized.map((json) => ({ json }));"
+      }
+    },
+    {
+      "id": "b3",
+      "name": "Country Filter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [740, 260],
+      "parameters": {
+        "jsCode": "const targetCountry = String($env.COUNTRY_FILTER_DEFAULT || 'IN').toUpperCase();\n\nreturn $input.all().map((item) => {\n  const j = item.json;\n  const countryRaw = String(j.country || '').trim().toUpperCase();\n  const locationRaw = String(j.location_text || '');\n\n  const map = {\n    INDIA: 'IN',\n    IN: 'IN',\n    USA: 'US',\n    UNITED STATES: 'US'\n  };\n\n  const normalizedCountry = map[countryRaw] || countryRaw;\n  const regexIndia = /\\b(india|bengaluru|bangalore|hyderabad|pune|gurgaon|noida|mumbai|delhi|chennai)\\b/i;\n  const fallbackIn = regexIndia.test(locationRaw) ? 'IN' : normalizedCountry;\n  const effective = fallbackIn;\n\n  const accepted = effective === targetCountry;\n  j.country = effective;\n  j.filter_stage = 'country_filter';\n  j.filter_reason = accepted ? 'accepted' : `country_mismatch:${effective}`;\n  j.is_rejected = !accepted;\n  return { json: j };\n});"
+      }
+    },
+    {
+      "id": "b4",
+      "name": "Keep Accepted",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [980, 200],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{$json.is_rejected}}",
+              "operator": { "type": "boolean", "operation": "false" },
+              "rightValue": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b5",
+      "name": "Generate Dedupe Keys",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1220, 200],
+      "parameters": {
+        "jsCode": "const simpleHash = (s) => {\n  let h = 0;\n  for (let i = 0; i < s.length; i += 1) {\n    h = ((h << 5) - h) + s.charCodeAt(i);\n    h |= 0;\n  }\n  return String(Math.abs(h));\n};\n\nreturn $input.all().map((item) => {\n  const j = item.json;\n  const normalizedUrl = String(j.job_url || '').trim().toLowerCase();\n  const composite = `${String(j.title || '').trim().toLowerCase()}|${String(j.company_name || '').trim().toLowerCase()}|${String(j.location_text || '').trim().toLowerCase()}`;\n\n  j.dedupe_key_job_id = String(j.job_id || '').trim();\n  j.dedupe_key_url = normalizedUrl;\n  j.dedupe_key_hash = simpleHash(composite);\n  j.processing_status = 'NEW';\n  j.date_created = new Date().toISOString();\n  return { json: j };\n});"
+      }
+    },
+    {
+      "id": "b6",
+      "name": "Upsert JobsMasterTracker",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1460, 200],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": "={{$env.GSHEET_TRACKER_ID}}",
+        "sheetName": "JobsMasterTracker",
+        "columns": {
+          "value": {
+            "job_id": "={{$json.job_id}}",
+            "title": "={{$json.title}}",
+            "company": "={{$json.company_name}}",
+            "location": "={{$json.location_text}}",
+            "country": "={{$json.country}}",
+            "workplace_type": "={{$json.workplace_type}}",
+            "experience_level": "={{$json.experience_level}}",
+            "posted_date": "={{$json.posted_date}}",
+            "job_url": "={{$json.job_url}}",
+            "job_status": "NEW",
+            "date_created": "={{$json.date_created}}",
+            "processing_version": "v1",
+            "processed_for_ai": false,
+            "processed_for_resume": false,
+            "processed_for_coldmail": false
+          }
+        },
+        "options": {
+          "updateExisting": true
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "id": "b7",
+      "name": "Upsert ProcessedJobs",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1700, 200],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": "={{$env.GSHEET_TRACKER_ID}}",
+        "sheetName": "ProcessedJobs",
+        "columns": {
+          "value": {
+            "job_id": "={{$json.dedupe_key_job_id}}",
+            "linkedin_url": "={{$json.dedupe_key_url}}",
+            "hash": "={{$json.dedupe_key_hash}}",
+            "first_seen": "={{$json.date_created}}",
+            "last_seen": "={{new Date().toISOString()}}",
+            "processing_status": "TRACKED"
+          }
+        },
+        "options": {
+          "updateExisting": true
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Normalize Jobs", "type": "main", "index": 0 }]] },
+    "Normalize Jobs": { "main": [[{ "node": "Country Filter", "type": "main", "index": 0 }]] },
+    "Country Filter": { "main": [[{ "node": "Keep Accepted", "type": "main", "index": 0 }]] },
+    "Keep Accepted": { "main": [[{ "node": "Generate Dedupe Keys", "type": "main", "index": 0 }]] },
+    "Generate Dedupe Keys": { "main": [[{ "node": "Upsert JobsMasterTracker", "type": "main", "index": 0 }]] },
+    "Upsert JobsMasterTracker": { "main": [[{ "node": "Upsert ProcessedJobs", "type": "main", "index": 0 }]] }
+  },
+  "settings": {},
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

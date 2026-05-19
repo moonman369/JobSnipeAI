@@ -1,0 +1,228 @@
+{
+  "name": "04_AI_Resume_Coldmail",
+  "nodes": [
+    {
+      "id": "c1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 280],
+      "parameters": {}
+    },
+    {
+      "id": "c2",
+      "name": "Build AI Scoring Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 280],
+      "parameters": {
+        "jsCode": "const resumeMaster = $env.RESUME_MASTER_PROFILE || 'Set RESUME_MASTER_PROFILE env var';\nconst minScore = Number($env.AI_MATCH_THRESHOLD || 70);\n\nreturn $input.all().map((item) => {\n  const j = item.json;\n  const prompt = [\n    'You are a hiring-fit scoring engine. Output strict JSON only.',\n    'Schema: {\"match_score\": number, \"strengths\": string[], \"gaps\": string[], \"recommendation\": string, \"confidence\": string}',\n    `Minimum score gate is ${minScore}.`,\n    `Candidate profile:\\n${resumeMaster}`,\n    `Job title: ${j.title || ''}`,\n    `Company: ${j.company || j.company_name || ''}`,\n    `Job description:\\n${j.description || ''}`\n  ].join('\\n\\n');\n\n  j.ai_job_score_prompt = prompt;\n  return { json: j };\n});"
+      }
+    },
+    {
+      "id": "c3",
+      "name": "Message a model - Job Scoring",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [700, 280],
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "={{$json.ai_job_score_prompt}}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": 0.2,
+          "textFormat": {
+            "textOptions": {
+              "type": "json_object"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "id": "c4",
+      "name": "Parse Score JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 280],
+      "parameters": {
+        "jsCode": "const base = $('Build AI Scoring Prompt').item.json;\nconst content = $json.text || '{}';\n\nlet parsed;\ntry {\n  const firstBrace = content.indexOf('{');\n  const lastBrace = content.lastIndexOf('}');\n  const jsonSlice = firstBrace >= 0 && lastBrace >= 0 ? content.slice(firstBrace, lastBrace + 1) : '{}';\n  parsed = JSON.parse(jsonSlice);\n} catch {\n  parsed = { match_score: 0, strengths: [], gaps: ['json_parse_error'], recommendation: 'REVIEW_MANUALLY', confidence: 'low' };\n}\n\nreturn [{\n  json: {\n    ...base,\n    ai_match_score: Number(parsed.match_score || 0),\n    ai_match_reason: JSON.stringify({ strengths: parsed.strengths || [], gaps: parsed.gaps || [], recommendation: parsed.recommendation || '' }),\n    ai_confidence: parsed.confidence || 'unknown'\n  }\n}];"
+      }
+    },
+    {
+      "id": "c5",
+      "name": "Pass Threshold?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1180, 280],
+      "parameters": {
+        "conditions": {
+          "options": { "version": 2, "leftValue": "", "caseSensitive": true, "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{$json.ai_match_score}}",
+              "operator": { "type": "number", "operation": "gte" },
+              "rightValue": "={{Number($env.AI_MATCH_THRESHOLD || 70)}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c6",
+      "name": "Build Resume+Coldmail Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1420, 220],
+      "parameters": {
+        "jsCode": "const resumeLatex = $env.RESUME_LATEX_FULL || 'Set RESUME_LATEX_FULL env var';\nconst salutation = $env.COLDMAIL_SALUTATION || '[Name]';\n\nreturn $input.all().map((item) => {\n  const j = item.json;\n  j.resume_tweaks_prompt = [\n    'Return strict JSON only.',\n    'Schema: {\"summary_tweaks\":[],\"experience_tweaks\":[],\"skills_to_add\":[],\"ats_keywords\":[],\"important_notes\":[]}',\n    `Company: ${j.company || j.company_name || ''}`,\n    `Role: ${j.title || ''}`,\n    `Job description:\\n${j.description || ''}`,\n    `Resume LaTeX:\\n${resumeLatex}`\n  ].join('\\n\\n');\n\n  j.coldmail_prompt = [\n    'Write concise referral coldmail in plain text.',\n    `Use salutation exactly as: ${salutation}`,\n    `Company: ${j.company || j.company_name || ''}`,\n    `Role: ${j.title || ''}`,\n    `Candidate highlights: ${j.ai_match_reason || ''}`\n  ].join('\\n\\n');\n\n  return { json: j };\n});"
+      }
+    },
+    {
+      "id": "c7",
+      "name": "Message a model - Resume Tweaks",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [1660, 180],
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "={{$json.resume_tweaks_prompt}}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": 0.2,
+          "textFormat": {
+            "textOptions": {
+              "type": "json_object"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "id": "c8",
+      "name": "Message a model - Coldmail",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [1660, 300],
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "={{$json.coldmail_prompt}}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_WITH_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "id": "c9",
+      "name": "Merge AI Outputs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1900, 240],
+      "parameters": {
+        "jsCode": "const base = $('Build Resume+Coldmail Prompt').item.json;\nconst resumeRaw = $('Message a model - Resume Tweaks').item.json.text || '{}';\nconst coldmail = $('Message a model - Coldmail').item.json.text || '';\n\nlet resumeParsed;\ntry {\n  const firstBrace = resumeRaw.indexOf('{');\n  const lastBrace = resumeRaw.lastIndexOf('}');\n  const jsonSlice = firstBrace >= 0 && lastBrace >= 0 ? resumeRaw.slice(firstBrace, lastBrace + 1) : '{}';\n  resumeParsed = JSON.parse(jsonSlice);\n} catch {\n  resumeParsed = { summary_tweaks: [], experience_tweaks: [], skills_to_add: [], ats_keywords: [], important_notes: ['json_parse_error'] };\n}\n\nreturn [{\n  json: {\n    ...base,\n    ai_resume_tweaks: JSON.stringify(resumeParsed),\n    ai_coldmail: coldmail,\n    processed_for_ai: true,\n    processed_for_resume: true,\n    processed_for_coldmail: true,\n    summarization_cycle_id: `${new Date().toISOString().slice(0,10)}_${$execution.id}`\n  }\n}];"
+      }
+    },
+    {
+      "id": "c10",
+      "name": "Update JobsMasterTracker AI Fields",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2140, 240],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": "={{$env.GSHEET_TRACKER_ID}}",
+        "sheetName": "JobsMasterTracker",
+        "columns": {
+          "value": {
+            "job_id": "={{$json.job_id}}",
+            "ai_match_score": "={{$json.ai_match_score}}",
+            "ai_match_reason": "={{$json.ai_match_reason}}",
+            "ai_resume_tweaks": "={{$json.ai_resume_tweaks}}",
+            "ai_coldmail": "={{$json.ai_coldmail}}",
+            "processed_for_ai": true,
+            "processed_for_resume": true,
+            "processed_for_coldmail": true,
+            "summarization_cycle_id": "={{$json.summarization_cycle_id}}"
+          }
+        },
+        "options": {
+          "updateExisting": true
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Build AI Scoring Prompt", "type": "main", "index": 0 }]] },
+    "Build AI Scoring Prompt": { "main": [[{ "node": "Message a model - Job Scoring", "type": "main", "index": 0 }]] },
+    "Message a model - Job Scoring": { "main": [[{ "node": "Parse Score JSON", "type": "main", "index": 0 }]] },
+    "Parse Score JSON": { "main": [[{ "node": "Pass Threshold?", "type": "main", "index": 0 }]] },
+    "Pass Threshold?": { "main": [[{ "node": "Build Resume+Coldmail Prompt", "type": "main", "index": 0 }], []] },
+    "Build Resume+Coldmail Prompt": {
+      "main": [[{ "node": "Message a model - Resume Tweaks", "type": "main", "index": 0 }, { "node": "Message a model - Coldmail", "type": "main", "index": 0 }]]
+    },
+    "Message a model - Resume Tweaks": { "main": [[{ "node": "Merge AI Outputs", "type": "main", "index": 0 }]] },
+    "Message a model - Coldmail": { "main": [[{ "node": "Merge AI Outputs", "type": "main", "index": 0 }]] },
+    "Merge AI Outputs": { "main": [[{ "node": "Update JobsMasterTracker AI Fields", "type": "main", "index": 0 }]] }
+  },
+  "settings": {},
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

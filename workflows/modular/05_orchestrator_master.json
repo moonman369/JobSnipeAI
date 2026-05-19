@@ -1,0 +1,162 @@
+{
+  "name": "05_JobSnipeAI_Master_Orchestrator",
+  "nodes": [
+    {
+      "id": "m1",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [200, 280],
+      "parameters": {}
+    },
+    {
+      "id": "m2",
+      "name": "Init Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 280],
+      "parameters": {
+        "jsCode": "const incoming = $input.first()?.json || {};\nconst now = new Date();\nconst runId = `run_${now.toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}_${$execution.id}`;\n\nreturn [{\n  json: {\n    ...incoming,\n    run_id: runId,\n    started_at: now.toISOString(),\n    completed_at: '',\n    jobs_scraped: 0,\n    jobs_filtered: 0,\n    jobs_added: 0,\n    jobs_rejected: 0,\n    ai_processed: 0,\n    failures: 0,\n    notes: incoming.form_triggered ? 'started_from_google_form' : 'started'\n  }\n}];"
+      }
+    },
+    {
+      "id": "m3",
+      "name": "Write SummarizationRuns Start",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [660, 280],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": "={{$env.GSHEET_TRACKER_ID}}",
+        "sheetName": "SummarizationRuns",
+        "columns": {
+          "value": {
+            "run_id": "={{$json.run_id}}",
+            "started_at": "={{$json.started_at}}",
+            "completed_at": "",
+            "jobs_scraped": 0,
+            "jobs_filtered": 0,
+            "jobs_added": 0,
+            "jobs_rejected": 0,
+            "ai_processed": 0,
+            "failures": 0,
+            "notes": "={{$json.notes}}"
+          }
+        },
+        "options": {
+          "updateExisting": true
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "id": "m4",
+      "name": "Execute 01 Ingestion",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [920, 280],
+      "parameters": {
+        "workflowId": "REPLACE_WORKFLOW_ID_01",
+        "mode": "each"
+      }
+    },
+    {
+      "id": "m5",
+      "name": "Execute 02 Apify",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1160, 280],
+      "parameters": {
+        "workflowId": "REPLACE_WORKFLOW_ID_02",
+        "mode": "each"
+      }
+    },
+    {
+      "id": "m6",
+      "name": "Execute 03 Normalize+Track",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1400, 280],
+      "parameters": {
+        "workflowId": "REPLACE_WORKFLOW_ID_03",
+        "mode": "each"
+      }
+    },
+    {
+      "id": "m7",
+      "name": "Execute 04 AI",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1640, 280],
+      "parameters": {
+        "workflowId": "REPLACE_WORKFLOW_ID_04",
+        "mode": "each"
+      }
+    },
+    {
+      "id": "m8",
+      "name": "Finalize Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1860, 280],
+      "parameters": {
+        "jsCode": "const base = $('Init Run').item.json;\nconst now = new Date().toISOString();\n\nreturn [{\n  json: {\n    ...base,\n    completed_at: now,\n    notes: `${base.notes}|completed`\n  }\n}];"
+      }
+    },
+    {
+      "id": "m9",
+      "name": "Write SummarizationRuns End",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2100, 280],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": "={{$env.GSHEET_TRACKER_ID}}",
+        "sheetName": "SummarizationRuns",
+        "columns": {
+          "value": {
+            "run_id": "={{$json.run_id}}",
+            "started_at": "={{$json.started_at}}",
+            "completed_at": "={{$json.completed_at}}",
+            "jobs_scraped": "={{$json.jobs_scraped}}",
+            "jobs_filtered": "={{$json.jobs_filtered}}",
+            "jobs_added": "={{$json.jobs_added}}",
+            "jobs_rejected": "={{$json.jobs_rejected}}",
+            "ai_processed": "={{$json.ai_processed}}",
+            "failures": "={{$json.failures}}",
+            "notes": "={{$json.notes}}"
+          }
+        },
+        "options": {
+          "updateExisting": true
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": { "main": [[{ "node": "Init Run", "type": "main", "index": 0 }]] },
+    "Init Run": { "main": [[{ "node": "Write SummarizationRuns Start", "type": "main", "index": 0 }]] },
+    "Write SummarizationRuns Start": { "main": [[{ "node": "Execute 01 Ingestion", "type": "main", "index": 0 }]] },
+    "Execute 01 Ingestion": { "main": [[{ "node": "Execute 02 Apify", "type": "main", "index": 0 }]] },
+    "Execute 02 Apify": { "main": [[{ "node": "Execute 03 Normalize+Track", "type": "main", "index": 0 }]] },
+    "Execute 03 Normalize+Track": { "main": [[{ "node": "Execute 04 AI", "type": "main", "index": 0 }]] },
+    "Execute 04 AI": { "main": [[{ "node": "Finalize Run", "type": "main", "index": 0 }]] },
+    "Finalize Run": { "main": [[{ "node": "Write SummarizationRuns End", "type": "main", "index": 0 }]] }
+  },
+  "settings": {},
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

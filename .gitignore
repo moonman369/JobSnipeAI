@@ -1,0 +1,39 @@
+# Secrets and local env
+.env
+.env.*
+!.env.example
+!docs/implementation/.env.job_snipe_ai.example
+
+# n8n/local runtime artifacts
+*.sqlite
+*.sqlite-journal
+n8n_data/
+postgres_data/
+
+# Local backups/exports
+backups/
+*.bak
+*.tmp
+
+# Logs
+*.log
+logs/
+
+# Node / JS tooling
+node_modules/
+dist/
+build/
+.cache/
+docs/prompts/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
