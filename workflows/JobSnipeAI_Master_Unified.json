@@ -1,0 +1,1501 @@
+{
+  "name": "JobSnipeAI_Master_Unified",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jobsnipe/google-form-submit",
+        "options": {}
+      },
+      "id": "2c3b04e5-179c-4184-bcc5-0835ca271afb",
+      "name": "Google Form Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -5056,
+        512
+      ],
+      "webhookId": "d868972f-60e3-4679-88e2-d62ca751d201"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\n\nconst get = (keys, d = '') => {\n  for (const k of keys) {\n    if (body[k] !== undefined && body[k] !== null && body[k] !== '') return body[k];\n  }\n  return d;\n};\n\nreturn [{\n  json: {\n    form_triggered: true,\n    source: 'google_forms',\n    search_name: get(['search_name', 'Search Name', 'searchName'], `form_run_${Date.now()}`),\n    company_list: get(['company_list', 'Company List', 'companyList'], ''),\n    job_titles: get(['job_titles', 'Job Titles', 'jobTitles'], ''),\n    locations: get(['locations', 'Locations'], 'India'),\n    industry_ids: get(['industry_ids', 'Industry IDs', 'industryIds'], ''),\n    employment_type: get(['employment_type', 'Employment Type', 'employmentType'], 'full-time'),\n    experience_levels: get(['experience_levels', 'Experience Levels', 'experienceLevels'], 'entry,associate,mid-senior'),\n    workplace_types: get(['workplace_types', 'Workplace Types', 'workplaceTypes'], 'hybrid,remote,office'),\n    easy_apply: get(['easy_apply', 'Easy Apply', 'easyApply'], 'false'),\n    under_10_applicants: get(['under_10_applicants', 'Under 10 Applicants', 'under10Applicants'], 'false'),\n    max_items: get(['max_items', 'Max Items', 'maxItems'], '25'),\n    country_filter: get(['country_filter', 'Country Filter', 'countryFilter'], 'IN')\n  }\n}];"
+      },
+      "id": "feca6fea-5426-4dea-969e-14d705fbe43c",
+      "name": "Map Form Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4832,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const incoming = $json;\nconst now = new Date();\nconst runId = `run_${now.toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}_${$execution.id}`;\n\nreturn [{\n  json: {\n    ...incoming,\n    run_id: runId,\n    started_at: now.toISOString(),\n    completed_at: '',\n    jobs_scraped: 0,\n    jobs_filtered: 0,\n    jobs_added: 0,\n    jobs_rejected: 0,\n    ai_processed: 0,\n    failures: 0,\n    notes: 'started_from_google_form'\n  }\n}];"
+      },
+      "id": "08fb3909-c0c5-4f0b-8614-56496b35bcfc",
+      "name": "Init Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4608,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\":\"accepted\",\"source\":\"google_forms\",\"message\":\"Unified workflow started\"}",
+        "options": {}
+      },
+      "id": "d2400243-11af-4251-bcbb-706e96ba50b0",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.2,
+      "position": [
+        -5056,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{$env.GSHEET_TRACKER_ID}}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "2",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "e6348bfb-9dc4-4221-809d-507b7184ff37",
+      "name": "Write SummarizationRuns Start",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -4384,
+        512
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "KW4Vk1ZDIN144Exw",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const parseBool = (v, d = false) => {\n  if (v === undefined || v === null || v === '') return d;\n  if (typeof v === 'boolean') return v;\n  return String(v).trim().toLowerCase() === 'true';\n};\n\nconst parseIntSafe = (v, d = 25) => {\n  const n = Number(v);\n  return Number.isFinite(n) && n > 0 ? n : d;\n};\n\nconst parseCsv = (v) => {\n  if (!v) return [];\n  return String(v)\n    .split(',')\n    .map((s) => s.trim())\n    .filter(Boolean);\n};\n\nreturn $input.all().map((item) => {\n  const f = item.json;\n\n  const config = {\n    search_name: f.search_name || `form_${new Date().toISOString().slice(0, 10)}`,\n    company_list: parseCsv(f.company_list),\n    job_titles: parseCsv(f.job_titles),\n    locations: parseCsv(f.locations),\n    industry_ids: parseCsv(f.industry_ids),\n    employment_type: parseCsv(f.employment_type),\n    experience_levels: parseCsv(f.experience_levels),\n    workplace_types: parseCsv(f.workplace_types),\n    easy_apply: parseBool(f.easy_apply, false),\n    under_10_applicants: parseBool(f.under_10_applicants, false),\n    max_items: parseIntSafe(f.max_items, 25),\n    country_filter: (f.country_filter || 'IN').toUpperCase(),\n    created_at: new Date().toISOString(),\n    updated_at: new Date().toISOString()\n  };\n\n  const payload = {\n    company: config.company_list,\n    easyApply: config.easy_apply,\n    employmentType: config.employment_type,\n    experienceLevel: config.experience_levels,\n    industryIds: config.industry_ids,\n    jobTitles: config.job_titles,\n    locations: config.locations,\n    maxItems: config.max_items,\n    under10Applicants: config.under_10_applicants,\n    workplaceType: config.workplace_types\n  };\n\n  return {\n    json: {\n      ...f,\n      search_name: config.search_name,\n      country_filter: config.country_filter,\n      apify_payload: payload,\n      config_snapshot: config,\n      execution_timestamp: new Date().toISOString()\n    }\n  };\n});"
+      },
+      "id": "c1d132d7-50ea-4329-91c6-b7b700a18f83",
+      "name": "Build Direct Apify Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4160,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.apify.com/v2/acts/{{$env.APIFY_ACTOR_ID}}/runs",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "token",
+              "value": "={{$env.APIFY_TOKEN}}"
+            },
+            {
+              "name": "waitForFinish",
+              "value": "0"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.apify_payload}}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "6e00691f-9d92-4f34-8636-34e5b771c41d",
+      "name": "Start Actor Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -3936,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json.data || $json;\nconst base = $('Build Direct Apify Payload').item.json;\n\nreturn [{\n  json: {\n    ...base,\n    actor_run_id: input.id,\n    dataset_id: input.defaultDatasetId || '',\n    run_status: input.status,\n    started_at_actor: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "7c0ff04e-f337-413e-966e-e686ad9f88a1",
+      "name": "Extract Run Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3712,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 15
+      },
+      "id": "e7db5de0-9af2-4494-b7d1-bee2d1084920",
+      "name": "Wait 20s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -3488,
+        512
+      ],
+      "webhookId": "2c03b023-e73c-46f8-82ef-900392bc285e"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.apify.com/v2/actor-runs/{{$json.actor_run_id}}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "token",
+              "value": "={{$env.APIFY_TOKEN}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "821020c9-8957-419f-957a-adb23706bc89",
+      "name": "Get Run Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -3488,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const statusBody = $json.data || $json;\nconst previous = (() => {\n  try { return $('Track Poll Attempt').last().json; } catch { return $('Extract Run Metadata').first().json; }\n})();\n\nconst pollAttempt = Number(previous.poll_attempt || 0) + 1;\nconst maxPollAttempts = Number($env.APIFY_MAX_POLL_ATTEMPTS || 30);\nconst terminalStatuses = new Set(['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT', 'TIMED_OUT']);\nconst status = String(statusBody.status || '').toUpperCase();\nconst timedOut = pollAttempt >= maxPollAttempts && !terminalStatuses.has(status);\n\nreturn [{\n  json: {\n    ...previous,\n    data: statusBody,\n    run_status: timedOut ? 'POLL_TIMEOUT' : status,\n    poll_attempt: pollAttempt,\n    max_poll_attempts: maxPollAttempts,\n    poll_timed_out: timedOut,\n    actor_run_id: previous.actor_run_id || statusBody.id || '',\n    dataset_id: previous.dataset_id || statusBody.defaultDatasetId || '',\n    last_polled_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "e07a96af-dd76-4d7d-b423-f5f2823d4b67",
+      "name": "Track Poll Attempt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3264,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.run_status}}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "SUCCEEDED",
+              "id": "4b06d069-2653-4be8-ab8d-4cbfea4096fb"
+            },
+            {
+              "leftValue": "={{$json.run_status}}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "FAILED",
+              "id": "1e94f398-4bf0-4eeb-ad3e-053642144cc7"
+            },
+            {
+              "leftValue": "={{$json.run_status}}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "ABORTED",
+              "id": "2db6f170-54e8-4fd2-8c2c-40065584af92"
+            },
+            {
+              "leftValue": "={{$json.run_status}}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "TIMED-OUT",
+              "id": "ff1e4f02-a095-4417-81a8-34aa8d3c8f11"
+            },
+            {
+              "leftValue": "={{$json.run_status}}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "TIMED_OUT",
+              "id": "9e0c7d75-d6c1-4c40-bb31-ea1c25dc2e31"
+            },
+            {
+              "leftValue": "={{$json.poll_timed_out}}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": true,
+              "id": "edbf7048-3d99-49ad-a1f4-f7a6de09f311"
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "e5d79a43-1bcb-41d0-b3ae-841e13d0274a",
+      "name": "Run Finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -3040,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.run_status}}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "SUCCEEDED"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "395268b6-110e-4951-99e3-dc8c7f887a60",
+      "name": "Was Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -2816,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.apify.com/v2/datasets/{{$json.data.defaultDatasetId}}/items",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "token",
+              "value": "={{$env.APIFY_TOKEN}}"
+            },
+            {
+              "name": "clean",
+              "value": "true"
+            },
+            {
+              "name": "format",
+              "value": "json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "a7e73b6e-31cc-4276-b40d-ba83f0ab1ac1",
+      "name": "Fetch Dataset Items",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2592,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const datasetItems = $input.all().map(i => i.json);\nconst parent = $('Extract Run Metadata').first().json;\n\nreturn [{\n  json: {\n    ...parent,\n    dataset_id: parent.dataset_id || $('Get Run Status').first().json.data.defaultDatasetId,\n    execution_timestamp: new Date().toISOString(),\n    jobs_raw: datasetItems,\n    jobs_scraped: datasetItems.length\n  }\n}];\n"
+      },
+      "id": "ea05ddd6-a22a-47bf-a7dc-3e3b18fdba1e",
+      "name": "Prepare Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2368,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst jobs = Array.isArray(input.jobs_raw) ? input.jobs_raw : [];\n\nconst pick = (...v) => v.find((x) => x !== undefined && x !== null && x !== '');\nconst arr = (v) => (Array.isArray(v) ? v : []);\nconst strArr = (v) =>\n  arr(v).map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).filter(Boolean);\n\nconst normalized = jobs.map((j) => {\n  const linkedinUrlRaw = pick(j.linkedinUrl, j.jobUrl, j.link, j.url, '');\n  const linkedinUrl = typeof linkedinUrlRaw === 'string' ? linkedinUrlRaw : String(linkedinUrlRaw || '');\n\n  const inferredId =\n    (linkedinUrl.match(/\\/jobs\\/view\\/(\\d+)/) || linkedinUrl.match(/currentJobId=(\\d+)/) || [])[1] || '';\n\n  const parsedLoc = j.location?.parsed || {};\n  const company = j.company || {};\n\n  return {\n    run_id: input.run_id,\n    started_at: input.started_at,\n    actor_run_id: input.actor_run_id,\n    dataset_id: input.dataset_id,\n    search_name: input.search_name,\n    country_filter: input.country_filter,\n\n    job_id: pick(j.jobId, j.id, inferredId, ''),\n    title: pick(j.title, j.jobTitle, ''),\n    company_name: pick(j.companyName, company.name, ''),\n    company_linkedin: pick(j.companyUrl, company.linkedinUrl, ''),\n    company_website: pick(j.companyWebsite, company.website, ''),\n    location_text: pick(j.locationText, j.location?.linkedinText, parsedLoc.text, ''),\n    country: pick(j.countryCode, j.location?.countryCode, parsedLoc.countryCode, parsedLoc.country, ''),\n    state: pick(parsedLoc.state, parsedLoc.regionCode, ''),\n    city: pick(parsedLoc.city, ''),\n    workplace_type: pick(j.workplaceType, ''),\n    employment_type: pick(j.employmentType, ''),\n    experience_level: pick(j.experienceLevel, ''),\n    posted_date: pick(j.postedDate, j.postedAt, ''),\n    expiry_date: pick(j.expireAt, j.expiryDate, ''),\n    applicant_count: pick(j.applicantCount, j.applicationsCount, j.applicants, ''),\n    job_url: linkedinUrl,\n    easy_apply_url: pick(j.easyApplyUrl, j.applyUrl, ''),\n    description: pick(j.descriptionText, j.description, ''),\n    salary_text: pick(j.salary?.text, j.salaryText, ''),\n    industries: strArr(j.industries),\n    job_functions: strArr(j.jobFunctions),\n    company_size: pick(company.employeeCount, company.employeeCountRange?.start, ''),\n    company_followers: pick(company.followerCount, ''),\n    apply_method_type: pick(j.applyMethod?.type, j.applyMethodType, ''),\n    ats_system: pick(j.applicantTrackingSystem, j.atsSystem, ''),\n    scraped_at: new Date().toISOString(),\n    raw_json: j\n  };\n});\n\nreturn normalized.map((json) => ({ json }));\n"
+      },
+      "id": "068e5c0c-89c6-48af-ae00-2c01da70a9f7",
+      "name": "Normalize Jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2144,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const toCountryCode = (value) => {\n  const v = String(value || '').trim().toUpperCase();\n  const map = {\n    INDIA: 'IN',\n    IN: 'IN',\n    US: 'US',\n    USA: 'US',\n    'UNITED STATES': 'US'\n  };\n  return map[v] || v;\n};\n\nreturn $input.all().map((item) => {\n  const j = item.json;\n\n  const targetCountry = toCountryCode(j.country_filter || $env.COUNTRY_FILTER_DEFAULT || 'IN');\n  const sourceCountry = toCountryCode(j.country);\n\n  const locText = String(j.location_text || '');\n  const inFallback = /\\b(india|bengaluru|bangalore|hyderabad|pune|gurgaon|noida|mumbai|delhi|chennai)\\b/i.test(locText)\n    ? 'IN'\n    : sourceCountry;\n\n  const effective = inFallback || sourceCountry;\n  const accepted = effective === targetCountry;\n\n  j.country = effective;\n  j.filter_stage = 'country_filter';\n  j.filter_reason = accepted ? 'accepted' : `country_mismatch:${effective}->${targetCountry}`;\n  j.is_rejected = !accepted; // boolean, not string\n\n  return { json: j };\n});\n"
+      },
+      "id": "b972fe4a-c7d9-4f32-9647-9f46441305bf",
+      "name": "Country Filter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1920,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.is_rejected}}",
+              "operator": {
+                "type": "boolean",
+                "operation": "false"
+              },
+              "rightValue": true,
+              "id": "76d4de6d-8d8a-4078-881d-8df7a13a2ee0"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c78e95b6-f3d3-4f05-a554-71243ba77b07",
+      "name": "Keep Accepted",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        -1696,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const simpleHash = (s) => {\n  let h = 0;\n  for (let i = 0; i < s.length; i += 1) {\n    h = ((h << 5) - h) + s.charCodeAt(i);\n    h |= 0;\n  }\n  return String(Math.abs(h));\n};\n\nreturn $input.all().map((item) => {\n  const j = item.json;\n  const normalizedUrl = String(j.job_url || '').trim().toLowerCase();\n  const composite = [\n    String(j.title || '').trim().toLowerCase(),\n    String(j.company_name || '').trim().toLowerCase(),\n    String(j.location_text || '').trim().toLowerCase()\n  ].join('|');\n\n  j.dedupe_key_job_id = String(j.job_id || '').trim();\n  j.dedupe_key_url = normalizedUrl;\n  j.dedupe_key_hash = simpleHash(composite);\n  j.jd_text_for_ai = String(j.description || '');\n  j.processing_status = 'NEW';\n  j.date_created = new Date().toISOString();\n  return { json: j };\n});"
+      },
+      "id": "6e951aca-657a-4014-9c09-c06ca3003812",
+      "name": "Generate Dedupe Keys",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1472,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const MAX_CELL_CHARS = 49000;\nconst valueForSheet = (value) => {\n  if (value === undefined || value === null) return '';\n  if (typeof value === 'number' || typeof value === 'boolean') return value;\n  const text = Array.isArray(value)\n    ? value.map((v) => typeof v === 'object' ? JSON.stringify(v) : String(v)).join(', ')\n    : typeof value === 'object'\n      ? JSON.stringify(value)\n      : String(value);\n  return text.length <= MAX_CELL_CHARS ? text : text.slice(0, MAX_CELL_CHARS - 16) + '... [truncated]';\n};\nconst pick = (source, keys) => Object.fromEntries(\n  keys\n    .filter((key) => source[key] !== undefined && source[key] !== null && source[key] !== '')\n    .map((key) => [key, valueForSheet(source[key])])\n);\nconst allowedKeys = [\n  \"job_id\",\n  \"title\",\n  \"company_name\",\n  \"company_linkedin\",\n  \"company_website\",\n  \"location_text\",\n  \"country\",\n  \"state\",\n  \"city\",\n  \"workplace_type\",\n  \"employment_type\",\n  \"experience_level\",\n  \"posted_date\",\n  \"expiry_date\",\n  \"applicant_count\",\n  \"job_url\",\n  \"easy_apply_url\",\n  \"salary_text\",\n  \"industries\",\n  \"job_functions\",\n  \"company_size\",\n  \"company_followers\",\n  \"apply_method_type\",\n  \"ats_system\",\n  \"processing_status\",\n  \"ai_match_score\",\n  \"ai_match_threshold\",\n  \"passes_threshold\",\n  \"ai_match_reason\",\n  \"ai_confidence\",\n  \"ai_resume_tweaks\",\n  \"ai_coldmail\",\n  \"processed_for_ai\",\n  \"processed_for_resume\",\n  \"processed_for_coldmail\",\n  \"summarization_cycle_id\",\n  \"run_id\",\n  \"search_name\",\n  \"scraped_at\",\n  \"date_created\"\n];\n\nreturn $input.all().map((item) => ({\n  json: {\n    ...pick(item.json, allowedKeys),\n    jd_preserved_for_ai: true,\n    cleaned_for_sheet: true\n  },\n  pairedItem: item.pairedItem\n}));"
+      },
+      "id": "f2809797-151d-4d78-995d-2ce1ab103676",
+      "name": "Prepare JobsMasterTracker Write",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1248,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const currentJobId = String($json.job_id || '').trim();\nconst originals = $('Generate Dedupe Keys').all().map((item) => item.json);\nconst original = originals.find((job) => String(job.job_id || '').trim() === currentJobId) || $('Generate Dedupe Keys').item.json;\n\nreturn [{\n  json: {\n    ...original,\n    jobs_mastertracker_written: true\n  }\n}];"
+      },
+      "id": "dfad5c27-701e-4017-a63a-b447215b3f0a",
+      "name": "Restore Full Job Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{$env.GSHEET_TRACKER_ID}}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "0",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "handlingExtraData": "ignoreIt"
+        }
+      },
+      "id": "13765101-d775-40f4-a016-20a05ca214a8",
+      "name": "Upsert JobsMasterTracker",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -1024,
+        416
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "KW4Vk1ZDIN144Exw",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const MAX_CELL_CHARS = 49000;\nconst valueForSheet = (value) => {\n  if (value === undefined || value === null) return '';\n  if (typeof value === 'number' || typeof value === 'boolean') return value;\n  const text = Array.isArray(value)\n    ? value.map((v) => typeof v === 'object' ? JSON.stringify(v) : String(v)).join(', ')\n    : typeof value === 'object'\n      ? JSON.stringify(value)\n      : String(value);\n  return text.length <= MAX_CELL_CHARS ? text : text.slice(0, MAX_CELL_CHARS - 16) + '... [truncated]';\n};\nconst pick = (source, keys) => Object.fromEntries(\n  keys\n    .filter((key) => source[key] !== undefined && source[key] !== null && source[key] !== '')\n    .map((key) => [key, valueForSheet(source[key])])\n);\nconst allowedKeys = [\n  \"dedupe_key_hash\",\n  \"job_id\",\n  \"job_url\",\n  \"dedupe_key_job_id\",\n  \"dedupe_key_url\",\n  \"run_id\",\n  \"search_name\",\n  \"processing_status\",\n  \"date_created\"\n];\n\nreturn $input.all().map((item) => ({\n  json: {\n    ...pick(item.json, allowedKeys),\n    hash: valueForSheet(item.json.dedupe_key_hash || item.json.dedupe_key_job_id || item.json.job_id || item.json.dedupe_key_url),\n    cleaned_for_sheet: true\n  },\n  pairedItem: item.pairedItem\n}));"
+      },
+      "id": "fd20f9ec-c759-4bec-aa4d-4ef92cc23c93",
+      "name": "Prepare ProcessedJobs Write",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -576,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{$env.GSHEET_TRACKER_ID}}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "1",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "3a35d2e7-2c41-41e5-9c20-8927be6bd485",
+      "name": "Upsert ProcessedJobs",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -352,
+        416
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "KW4Vk1ZDIN144Exw",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const currentJobId = String($json.job_id || '').trim();\nconst currentHash = String($json.dedupe_key_hash || $json.hash || '').trim();\nconst originals = $('Generate Dedupe Keys').all().map((item) => item.json);\nconst original = originals.find((job) => String(job.job_id || '').trim() === currentJobId)\n  || originals.find((job) => String(job.dedupe_key_hash || '').trim() === currentHash)\n  || $('Generate Dedupe Keys').item.json;\n\nreturn [{\n  json: {\n    ...original,\n    processed_jobs_written: true\n  }\n}];"
+      },
+      "id": "bb6c1f3e-4f1e-42bf-b09d-90cf3d6a7409",
+      "name": "Restore Full Job Payload After ProcessedJobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -128,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resumeMaster = $env.RESUME_MASTER_PROFILE || 'Set RESUME_MASTER_PROFILE env var';\nconst minScore = Number($env.AI_MATCH_THRESHOLD || 70);\n\nreturn $input.all().map((item) => {\n  const j = item.json;\n  const jdText = j.jd_text_for_ai || j.description || '';\n  const prompt = [\n    'You are a hiring-fit scoring engine. Output strict JSON only.',\n    'Schema: {\"match_score\": number, \"strengths\": string[], \"gaps\": string[], \"recommendation\": string, \"confidence\": string}',\n    'Minimum score gate is ' + minScore + '.',\n    'Candidate profile:\\n' + resumeMaster,\n    'Job title: ' + (j.title || ''),\n    'Company: ' + (j.company || j.company_name || ''),\n    'Job description:\\n' + jdText\n  ].join('\\n\\n');\n\n  j.ai_job_score_prompt = prompt;\n  return { json: j };\n});"
+      },
+      "id": "f31fd0ee-de81-4bb9-bf9a-7ab880403e58",
+      "name": "Build AI Scoring Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        96,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "={{$json.ai_job_score_prompt}}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_object"
+            }
+          },
+          "temperature": 0.2
+        }
+      },
+      "id": "5d553656-3e58-4183-aaa8-df0c2195e127",
+      "name": "Message a model - Job Scoring",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        320,
+        416
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "4fD80gZKwRF5gt0O",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Build AI Scoring Prompt').item.json;\nconst minScoreRaw = Number($env.AI_MATCH_THRESHOLD || 70);\nconst minScore = Number.isFinite(minScoreRaw) ? minScoreRaw : 70;\n\nconst findScoreObject = (value, depth = 0) => {\n  if (depth > 8 || value === undefined || value === null) return null;\n\n  if (typeof value === 'string') {\n    const text = value.trim();\n    if (!text) return null;\n\n    try { return findScoreObject(JSON.parse(text), depth + 1); } catch {}\n\n    const firstBrace = text.indexOf('{');\n    const lastBrace = text.lastIndexOf('}');\n    if (firstBrace >= 0 && lastBrace >= 0) {\n      try { return findScoreObject(JSON.parse(text.slice(firstBrace, lastBrace + 1)), depth + 1); } catch {}\n    }\n\n    return null;\n  }\n\n  if (Array.isArray(value)) {\n    for (const child of value) {\n      const found = findScoreObject(child, depth + 1);\n      if (found) return found;\n    }\n    return null;\n  }\n\n  if (typeof value === 'object') {\n    if (\n      value.match_score !== undefined ||\n      value.score !== undefined ||\n      value.matchScore !== undefined ||\n      value.fit_score !== undefined\n    ) return value;\n\n    for (const child of Object.values(value)) {\n      const found = findScoreObject(child, depth + 1);\n      if (found) return found;\n    }\n  }\n\n  return null;\n};\n\nconst parsed = findScoreObject($json) || {};\nconst scoreRaw = parsed.match_score ?? parsed.score ?? parsed.matchScore ?? parsed.fit_score ?? 0;\nconst aiMatchScore = Number(String(scoreRaw).replace(/[^0-9.-]/g, '')) || 0;\nconst passesThreshold = aiMatchScore >= minScore;\n\nreturn [{\n  json: {\n    ...base,\n    ai_match_score: aiMatchScore,\n    ai_match_threshold: minScore,\n    passes_threshold: passesThreshold,\n    ai_score_parser_version: 'recursive_v2',\n    ai_score_parse_debug: JSON.stringify({\n      output_keys: Object.keys($json),\n      raw_score: scoreRaw,\n      parsed_found: Object.keys(parsed).length > 0\n    }),\n    ai_match_reason: JSON.stringify({\n      strengths: parsed.strengths || [],\n      gaps: parsed.gaps || [],\n      recommendation: parsed.recommendation || ''\n    }),\n    ai_confidence: parsed.confidence || 'unknown'\n  }\n}];"
+      },
+      "id": "92743298-a300-44a6-b5d1-38b69e6751ac",
+      "name": "Parse Score JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{Boolean($json.passes_threshold)}}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              },
+              "rightValue": true,
+              "id": "b2c1b670-83db-43b7-8a65-fcc2e7dbca95"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d78f6fc1-ed2e-42d4-ad05-c4a2760f1c77",
+      "name": "Pass Threshold?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const resumeLatex = $env.RESUME_LATEX_FULL || 'Set RESUME_LATEX_FULL env var';\nconst salutation = $env.COLDMAIL_SALUTATION || '[Name]';\n\nreturn $input.all().map((item) => {\n  const j = item.json;\n  const jdText = j.jd_text_for_ai || j.description || '';\n  j.resume_tweaks_prompt = [\n    'Return strict JSON only.',\n    'Schema: {\"summary_tweaks\":[],\"experience_tweaks\":[],\"skills_to_add\":[],\"ats_keywords\":[],\"important_notes\":[]}',\n    'Company: ' + (j.company || j.company_name || ''),\n    'Role: ' + (j.title || ''),\n    'Job description:\\n' + jdText,\n    'Resume LaTeX:\\n' + resumeLatex\n  ].join('\\n\\n');\n\n  j.coldmail_prompt = [\n    'Write concise referral coldmail in plain text.',\n    'Use salutation exactly as: ' + salutation,\n    'Company: ' + (j.company || j.company_name || ''),\n    'Role: ' + (j.title || ''),\n    'Candidate highlights: ' + (j.ai_match_reason || '')\n  ].join('\\n\\n');\n\n  return { json: j };\n});"
+      },
+      "id": "0e9020fc-4789-4ff5-b25f-4f7b17f6e8d9",
+      "name": "Build Resume+Coldmail Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "={{$json.resume_tweaks_prompt}}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_object"
+            }
+          },
+          "temperature": 0.2
+        }
+      },
+      "id": "87d3c83c-5d57-4c32-a899-3e2bdb329cdb",
+      "name": "Message a model - Resume Tweaks",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        1344,
+        128
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "4fD80gZKwRF5gt0O",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "={{$json.coldmail_prompt}}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "5c844233-c6cb-4457-ae46-3d864ce68658",
+      "name": "Message a model - Coldmail",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        1344,
+        352
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "4fD80gZKwRF5gt0O",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Build Resume+Coldmail Prompt').item.json;\nconst resumeRaw = $('Message a model - Resume Tweaks').item.json.text || '{}';\nconst coldmail = $('Message a model - Coldmail').item.json.text || '';\n\nlet resumeParsed;\ntry {\n  const firstBrace = resumeRaw.indexOf('{');\n  const lastBrace = resumeRaw.lastIndexOf('}');\n  const jsonSlice = firstBrace >= 0 && lastBrace >= 0 ? resumeRaw.slice(firstBrace, lastBrace + 1) : '{}';\n  resumeParsed = JSON.parse(jsonSlice);\n} catch {\n  resumeParsed = { summary_tweaks: [], experience_tweaks: [], skills_to_add: [], ats_keywords: [], important_notes: ['json_parse_error'] };\n}\n\nreturn [{\n  json: {\n    ...base,\n    ai_resume_tweaks: JSON.stringify(resumeParsed),\n    ai_coldmail: coldmail,\n    processed_for_ai: true,\n    processed_for_resume: true,\n    processed_for_coldmail: true,\n    summarization_cycle_id: `${new Date().toISOString().slice(0,10)}_${$execution.id}`\n  }\n}];"
+      },
+      "id": "1e69d0c9-b863-4631-b78a-e1ce1fad8ab0",
+      "name": "Merge AI Outputs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const MAX_CELL_CHARS = 49000;\nconst valueForSheet = (value) => {\n  if (value === undefined || value === null) return '';\n  if (typeof value === 'number' || typeof value === 'boolean') return value;\n  const text = Array.isArray(value)\n    ? value.map((v) => typeof v === 'object' ? JSON.stringify(v) : String(v)).join(', ')\n    : typeof value === 'object'\n      ? JSON.stringify(value)\n      : String(value);\n  return text.length <= MAX_CELL_CHARS ? text : text.slice(0, MAX_CELL_CHARS - 16) + '... [truncated]';\n};\nconst pick = (source, keys) => Object.fromEntries(\n  keys\n    .filter((key) => source[key] !== undefined && source[key] !== null && source[key] !== '')\n    .map((key) => [key, valueForSheet(source[key])])\n);\nconst allowedKeys = [\n  \"job_id\",\n  \"title\",\n  \"company_name\",\n  \"company_linkedin\",\n  \"company_website\",\n  \"location_text\",\n  \"country\",\n  \"state\",\n  \"city\",\n  \"workplace_type\",\n  \"employment_type\",\n  \"experience_level\",\n  \"posted_date\",\n  \"expiry_date\",\n  \"applicant_count\",\n  \"job_url\",\n  \"easy_apply_url\",\n  \"salary_text\",\n  \"industries\",\n  \"job_functions\",\n  \"company_size\",\n  \"company_followers\",\n  \"apply_method_type\",\n  \"ats_system\",\n  \"processing_status\",\n  \"ai_match_score\",\n  \"ai_match_threshold\",\n  \"passes_threshold\",\n  \"ai_match_reason\",\n  \"ai_confidence\",\n  \"ai_resume_tweaks\",\n  \"ai_coldmail\",\n  \"processed_for_ai\",\n  \"processed_for_resume\",\n  \"processed_for_coldmail\",\n  \"summarization_cycle_id\",\n  \"run_id\",\n  \"search_name\",\n  \"scraped_at\",\n  \"date_created\"\n];\n\nreturn $input.all().map((item) => ({\n  json: {\n    ...pick(item.json, allowedKeys),\n    cleaned_for_sheet: true,\n    jd_omitted_from_sheet: true\n  },\n  pairedItem: item.pairedItem\n}));"
+      },
+      "id": "3871daeb-2f46-4a12-9f43-cbd18909c462",
+      "name": "Prepare AI Sheet Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{$env.GSHEET_TRACKER_ID}}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "0",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "handlingExtraData": "ignoreIt"
+        }
+      },
+      "id": "0e5f49c4-1892-4d26-bb70-5f7956a51bfb",
+      "name": "Update JobsMasterTracker AI Fields",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2144,
+        320
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "KW4Vk1ZDIN144Exw",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const MAX_CELL_CHARS = 49000;\nconst valueForSheet = (value) => {\n  if (value === undefined || value === null) return '';\n  if (typeof value === 'number' || typeof value === 'boolean') return value;\n  const text = Array.isArray(value)\n    ? value.map((v) => typeof v === 'object' ? JSON.stringify(v) : String(v)).join(', ')\n    : typeof value === 'object'\n      ? JSON.stringify(value)\n      : String(value);\n  return text.length <= MAX_CELL_CHARS ? text : text.slice(0, MAX_CELL_CHARS - 16) + '... [truncated]';\n};\nconst pick = (source, keys) => Object.fromEntries(\n  keys\n    .filter((key) => source[key] !== undefined && source[key] !== null && source[key] !== '')\n    .map((key) => [key, valueForSheet(source[key])])\n);\nconst allowedKeys = [\n  \"job_id\",\n  \"title\",\n  \"company_name\",\n  \"company_linkedin\",\n  \"company_website\",\n  \"location_text\",\n  \"country\",\n  \"state\",\n  \"city\",\n  \"workplace_type\",\n  \"employment_type\",\n  \"experience_level\",\n  \"posted_date\",\n  \"expiry_date\",\n  \"applicant_count\",\n  \"job_url\",\n  \"easy_apply_url\",\n  \"salary_text\",\n  \"industries\",\n  \"job_functions\",\n  \"company_size\",\n  \"company_followers\",\n  \"apply_method_type\",\n  \"ats_system\",\n  \"processing_status\",\n  \"ai_match_score\",\n  \"ai_match_threshold\",\n  \"passes_threshold\",\n  \"ai_match_reason\",\n  \"ai_confidence\",\n  \"ai_resume_tweaks\",\n  \"ai_coldmail\",\n  \"processed_for_ai\",\n  \"processed_for_resume\",\n  \"processed_for_coldmail\",\n  \"summarization_cycle_id\",\n  \"run_id\",\n  \"search_name\",\n  \"scraped_at\",\n  \"date_created\"\n];\n\nreturn $input.all().map((item) => ({\n  json: {\n    ...pick(item.json, allowedKeys),\n    cleaned_for_sheet: true,\n    jd_omitted_from_sheet: true\n  },\n  pairedItem: item.pairedItem\n}));"
+      },
+      "id": "a6084a18-7780-41e4-8f43-01b29803a610",
+      "name": "Prepare Low Match Sheet Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GSHEET_TRACKER_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "0",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "handlingExtraData": "ignoreIt"
+        }
+      },
+      "id": "726842b0-4bab-4cb3-9c85-c8f9469e7081",
+      "name": "Update Low Match Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1920,
+        608
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "KW4Vk1ZDIN144Exw",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Init Run').item.json;\nconst jobsScraped = (() => {\n  try { return $('Prepare Output').item.json.jobs_scraped || 0; } catch { return 0; }\n})();\nconst jobsAccepted = (() => {\n  try { return $('Generate Dedupe Keys').all().length; } catch { return 0; }\n})();\nconst highProcessed = (() => {\n  try { return $('Update JobsMasterTracker AI Fields').all().length; } catch { return 0; }\n})();\nconst lowProcessed = (() => {\n  try { return $('Update Low Match Status').all().length; } catch { return 0; }\n})();\n\nreturn [{\n  json: {\n    run_id: base.run_id,\n    started_at: base.started_at,\n    completed_at: new Date().toISOString(),\n    jobs_scraped: jobsScraped,\n    jobs_filtered: jobsAccepted,\n    jobs_added: jobsAccepted,\n    jobs_rejected: Math.max(jobsScraped - jobsAccepted, 0),\n    ai_processed: highProcessed + lowProcessed,\n    failures: 0,\n    notes: 'completed'\n  }\n}];"
+      },
+      "id": "6554d1dd-01ea-4a40-bf54-e30900a313dc",
+      "name": "Finalize Run Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2368,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{$env.GSHEET_TRACKER_ID}}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "0",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "handlingExtraData": "ignoreIt"
+        }
+      },
+      "id": "a7b4068c-53d2-42eb-bcfd-f1c14089d6c1",
+      "name": "Write SummarizationRuns End",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1472,
+        512
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "KW4Vk1ZDIN144Exw",
+          "name": "Google Sheets account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "run_id",
+              "type": "string",
+              "value": "={{$('Init Run').item.json.run_id}}"
+            },
+            {
+              "name": "started_at",
+              "type": "string",
+              "value": "={{$('Init Run').item.json.started_at}}"
+            },
+            {
+              "name": "completed_at",
+              "type": "string",
+              "value": "={{new Date().toISOString()}}"
+            },
+            {
+              "name": "jobs_scraped",
+              "type": "number",
+              "value": 0
+            },
+            {
+              "name": "jobs_filtered",
+              "type": "number",
+              "value": 0
+            },
+            {
+              "name": "jobs_added",
+              "type": "number",
+              "value": 0
+            },
+            {
+              "name": "jobs_rejected",
+              "type": "number",
+              "value": 0
+            },
+            {
+              "name": "ai_processed",
+              "type": "number",
+              "value": 0
+            },
+            {
+              "name": "failures",
+              "type": "number",
+              "value": 1
+            },
+            {
+              "name": "notes",
+              "type": "string",
+              "value": "={{'failed_apify_status_' + $json.data.status}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2ca76b6f-e690-46e7-b7c5-23eb3c4545a0",
+      "name": "Dead Letter Event",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1248,
+        752
+      ]
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -5056,
+        976
+      ],
+      "id": "5559201a-8f4b-483e-a20e-cc914acd599b",
+      "name": "When clicking ‘Execute workflow’",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "34fc0832-f855-4f1b-a7bb-da123e6b6816",
+              "name": "=tracker",
+              "value": "={{$env.GSHEET_JOB_CONFIGS_ID}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -4832,
+        976
+      ],
+      "id": "312b4b7e-ef17-4141-8c67-a21a296a9e7a",
+      "name": "Edit Fields",
+      "disabled": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Google Form Webhook": {
+      "main": [
+        [
+          {
+            "node": "Map Form Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Form Fields": {
+      "main": [
+        [
+          {
+            "node": "Init Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init Run": {
+      "main": [
+        [
+          {
+            "node": "Write SummarizationRuns Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write SummarizationRuns Start": {
+      "main": [
+        [
+          {
+            "node": "Build Direct Apify Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Direct Apify Payload": {
+      "main": [
+        [
+          {
+            "node": "Start Actor Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Actor Run": {
+      "main": [
+        [
+          {
+            "node": "Extract Run Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Run Metadata": {
+      "main": [
+        [
+          {
+            "node": "Wait 20s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 20s": {
+      "main": [
+        [
+          {
+            "node": "Get Run Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Run Status": {
+      "main": [
+        [
+          {
+            "node": "Track Poll Attempt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Finished?": {
+      "main": [
+        [
+          {
+            "node": "Was Success?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 20s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was Success?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Dataset Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dead Letter Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Dataset Items": {
+      "main": [
+        [
+          {
+            "node": "Prepare Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Output": {
+      "main": [
+        [
+          {
+            "node": "Normalize Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Jobs": {
+      "main": [
+        [
+          {
+            "node": "Country Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Country Filter": {
+      "main": [
+        [
+          {
+            "node": "Keep Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep Accepted": {
+      "main": [
+        [
+          {
+            "node": "Generate Dedupe Keys",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Dedupe Keys": {
+      "main": [
+        [
+          {
+            "node": "Prepare JobsMasterTracker Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert JobsMasterTracker": {
+      "main": [
+        [
+          {
+            "node": "Restore Full Job Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert ProcessedJobs": {
+      "main": [
+        [
+          {
+            "node": "Restore Full Job Payload After ProcessedJobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI Scoring Prompt": {
+      "main": [
+        [
+          {
+            "node": "Message a model - Job Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model - Job Scoring": {
+      "main": [
+        [
+          {
+            "node": "Parse Score JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Score JSON": {
+      "main": [
+        [
+          {
+            "node": "Pass Threshold?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pass Threshold?": {
+      "main": [
+        [
+          {
+            "node": "Build Resume+Coldmail Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Low Match Sheet Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Resume+Coldmail Prompt": {
+      "main": [
+        [
+          {
+            "node": "Message a model - Resume Tweaks",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Message a model - Coldmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model - Resume Tweaks": {
+      "main": [
+        [
+          {
+            "node": "Merge AI Outputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model - Coldmail": {
+      "main": [
+        [
+          {
+            "node": "Merge AI Outputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge AI Outputs": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Sheet Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update JobsMasterTracker AI Fields": {
+      "main": [
+        [
+          {
+            "node": "Finalize Run Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Low Match Status": {
+      "main": [
+        [
+          {
+            "node": "Finalize Run Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Run Metrics": {
+      "main": [
+        [
+          {
+            "node": "Write SummarizationRuns End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dead Letter Event": {
+      "main": [
+        [
+          {
+            "node": "Write SummarizationRuns End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare JobsMasterTracker Write": {
+      "main": [
+        [
+          {
+            "node": "Upsert JobsMasterTracker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Full Job Payload": {
+      "main": [
+        [
+          {
+            "node": "Prepare ProcessedJobs Write",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Sheet Update": {
+      "main": [
+        [
+          {
+            "node": "Update JobsMasterTracker AI Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Low Match Sheet Update": {
+      "main": [
+        [
+          {
+            "node": "Update Low Match Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Poll Attempt": {
+      "main": [
+        [
+          {
+            "node": "Run Finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare ProcessedJobs Write": {
+      "main": [
+        [
+          {
+            "node": "Upsert ProcessedJobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Full Job Payload After ProcessedJobs": {
+      "main": [
+        [
+          {
+            "node": "Build AI Scoring Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "102c2a9e-b52b-42dd-90ed-66a7d3fc2efb",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b51ee7668749765b06a51d6a6d475b7a6f3defb1c73a5e81f761b383d5a8da1f"
+  },
+  "id": "qAi6co1x0IjFxH6T",
+  "tags": []
+}
